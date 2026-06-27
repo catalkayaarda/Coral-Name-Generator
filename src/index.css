@@ -1,0 +1,31 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-natural-bg: #FAF8F5;
+  --color-natural-text: #3D3B38;
+  --color-natural-muted: #8E8A84;
+  --color-natural-accent: #D9826C;
+  --color-natural-teal: #4A7C7A;
+  --color-natural-border: #E5E0D8;
+  --color-natural-panel: #FCFAF7;
+  --color-natural-cream: #E8D5C4;
+  --color-natural-lightcream: #FAF8F5;
+}
+
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@theme {
+  --animate-spin-slow: spin-slow 15s linear infinite;
+}
