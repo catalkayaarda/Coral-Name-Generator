@@ -14,6 +14,19 @@ const PORT = 3000;
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+app.get("/api/debug", (req, res) => {
+  res.json({
+    status: "ok",
+    env: {
+      NODE_ENV: process.env.NODE_ENV,
+      VERCEL: process.env.VERCEL,
+      HAS_GEMINI_KEY: !!process.env.GEMINI_API_KEY,
+    },
+    version: process.version,
+  });
+});
+
+
 // Lazy-loaded Gemini Client pattern to prevent startup crashes when API keys are empty
 let aiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI {
