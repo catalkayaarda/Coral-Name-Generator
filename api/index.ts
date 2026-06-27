@@ -126,8 +126,7 @@ app.post("/api/generate-coral-names", async (req, res) => {
       try {
         const base64Data = img.base64.replace(/^data:image\/\w+;base64,/, "");
 
-        const prompt = "Analyze this coral photo. Determine a beautiful, catchy trade name for it " +
-          "(e.g., 'Dragon Soul Torch', 'Sunset Montipora', 'Neon Green Star Polyps', 'Space Invader Pectinia').";
+        const prompt = "Find the common name of the coral in the center of this photo and write ONLY that name. Do not write anything else..";
 
         const response = await retryWithBackoff(() => 
           ai.models.generateContent({
