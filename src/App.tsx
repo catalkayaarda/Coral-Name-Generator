@@ -30,15 +30,59 @@ export default function App() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Helper: Convert File to Base64
+  // Helper: Compress and Convert File to Base64 (Max 1000px, JPEG format for optimal payload limits)
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result as string);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext;
+          if (!ctx) {
+            resolve(event.target?.result as string);
+            return;
+          }
+          const canvasCtx = canvas.getContext("2d");
+          if (!canvasCtx) {
+            resolve(event.target?.result as string);
+            return;
+          }
+
+          const MAX_DIM = 1000;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_DIM) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            }
+          } else {
+            if (height > MAX_DIM) {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          canvasCtx.drawImage(img, 0, 0, width, height);
+
+          // Convert to JPEG base64 with 0.8 quality to keep size well under Vercel payload limits
+          const base64 = canvas.toDataURL("image/jpeg", 0.8);
+          resolve(base64);
+        };
+        img.onerror = () => {
+          resolve(event.target?.result as string);
+        };
+      };
       reader.onerror = (err) => reject(err);
     });
   };
+
 
   // Handle Drag Events
   const handleDrag = (e: React.DragEvent) => {
