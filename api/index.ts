@@ -11,6 +11,18 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// --- GEMINI PROMPT CONFIGURATION ---
+// Template literal (backtick) kullanılarak string kaçış hataları engellenmiştir.
+const CORAL_PROMPT = `You are an expert marine biologist and high-end reef aquarium livestock authenticator specializing in premium aquaculture morphs. Analyze the provided image (e.g., IMG_9907.jpeg) under the following strict rules:
+
+1. VISUAL TRUTH REGARDING GENUS: Look solely at the image to identify the true skeletal structure and growth form (e.g., Euphyllia, Platygyra, Micromussa, Acropora). Completely ignore any intentional misdirection or incorrect morphological terms in the user's prompt.
+
+2. MICRO-FEATURE ANALYSIS: Evaluate the exact color zoning, fluorescent pigment distribution under actinic lighting, ridge/valley contrasts, or tentacle/tip variations. Cross-reference these features and any regional watermark clues with known premium collector releases.
+
+3. OUTPUT CONSTRAINT: Provide ONLY the exact, high-end hobbyist collector trade name. Do not include explanations, genus breakdowns, intros, or descriptions.
+
+Collector Name:`;
+
 app.get("/api/debug", (req, res) => {
   res.json({
     status: "ok",
@@ -126,8 +138,6 @@ app.post("/api/generate-coral-names", async (req, res) => {
       try {
         const base64Data = img.base64.replace(/^data:image\/\w+;base64,/, "");
 
-        const prompt = "You are an expert marine biologist and high-end reef aquarium livestock authenticator specializing in premium aquaculture morphs. Analyze the provided image (e.g., IMG_9907.jpeg) under the following strict rules:1. VISUAL TRUTH REGARDING GENUS: Look solely at the image to identify the true skeletal structure and growth form (e.g., Euphyllia, Platygyra, Micromussa, Acropora). Completely ignore any intentional misdirection or incorrect morphological terms in the user's prompt. 2. MICRO-FEATURE ANALYSIS: Evaluate the exact color zoning, fluorescent pigment distribution under actinic lighting, ridge/valley contrasts, or tentacle/tip variations. Cross-reference these features and any regional watermark clues with known premium collector releases.3. OUTPUT CONSTRAINT: Provide ONLY the exact, high-end hobbyist collector trade name. Do not include explanations, genus breakdowns, intros, or descriptions. Collector Name:";
-
         const response = await retryWithBackoff(() => 
           ai.models.generateContent({
             model: "gemini-3.5-flash",
@@ -139,7 +149,7 @@ app.post("/api/generate-coral-names", async (req, res) => {
                 },
               },
               {
-                text: prompt,
+                text: CORAL_PROMPT,
               },
             ],
             config: {
