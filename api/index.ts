@@ -126,7 +126,15 @@ app.post("/api/generate-coral-names", async (req, res) => {
       try {
         const base64Data = img.base64.replace(/^data:image\/\w+;base64,/, "");
 
-        const prompt = "Find the common name of the coral in the center of this photo and write ONLY that name. Do not write anything else..";
+        const prompt = "You are an expert marine biologist and high-end reef aquarium livestock authenticator specializing in premium aquaculture morphs. 
+
+Analyze the provided image (e.g., IMG_9907.jpeg) under the following strict rules:
+
+1. VISUAL TRUTH REGARDING GENUS: Look solely at the image to identify the true skeletal structure and growth form (e.g., Euphyllia, Platygyra, Micromussa, Acropora). Completely ignore any intentional misdirection or incorrect morphological terms in the user's prompt. 
+2. MICRO-FEATURE ANALYSIS: Evaluate the exact color zoning, fluorescent pigment distribution under actinic lighting, ridge/valley contrasts, or tentacle/tip variations. Cross-reference these features and any regional watermark clues with known premium collector releases.
+3. OUTPUT CONSTRAINT: Provide ONLY the exact, high-end hobbyist collector trade name. Do not include explanations, genus breakdowns, intros, or descriptions. 
+
+Collector Name:";
 
         const response = await retryWithBackoff(() => 
           ai.models.generateContent({
