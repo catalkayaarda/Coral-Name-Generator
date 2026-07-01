@@ -284,30 +284,77 @@ export default function App() {
     setAnalyzedCorals(prev => prev.filter(c => c.id !== id));
   };
 
-  // Export and Download Excel file with images
+  // Export and Download Excel file with images.
+  // Built entirely in the browser (ExcelJS is dynamically imported so it is only
+  // loaded when exporting). This avoids uploading all image data to the server,
+  // which previously hit Vercel's ~4.5MB request-body cap with a 413 for larger
+  // catalogs.
   const exportToExcel = async () => {
     if (analyzedCorals.length === 0) return;
     setIsExporting(true);
     setError(null);
 
     try {
-      const response = await fetch("/api/export-excel", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ corals: analyzedCorals }),
+      const { default: ExcelJS } = await import("exceljs");
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Coral Catalog");
+      worksheet.views = [{ showGridLines: true }];
+      worksheet.columns = [
+        { header: "Coral Photo", key: "photo", width: 25 },
+        { header: "Suggested Trade Name", key: "commonName", width: 45 },
+      ];
+
+      const headerRow = worksheet.getRow(1);
+      headerRow.height = 32;
+      headerRow.eachCell((cell) => {
+        cell.font = { name: "Segoe UI", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
+        cell.alignment = { vertical: "middle", horizontal: "center" };
+        cell.border = { bottom: { style: "medium", color: { argb: "FF334155" } } };
       });
 
-      if (!response.ok) {
-        if (response.status === 413) {
-          throw new Error("The catalog is too large to export in one request. Try exporting a smaller batch of corals at a time.");
-        }
-        const text = await response.text();
-        throw new Error(text?.trim() || "Failed to compile and download Excel sheet.");
-      }
+      analyzedCorals.forEach((coral, index) => {
+        const rowIndex = index + 2;
+        const row = worksheet.getRow(rowIndex);
+        row.height = 100;
 
-      const blob = await response.blob();
+        const cell = row.getCell(2);
+        cell.value = coral.commonName;
+        cell.font = { name: "Segoe UI", size: 11, bold: true };
+        cell.alignment = { vertical: "middle", wrapText: true };
+        cell.border = {
+          bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+          right: { style: "thin", color: { argb: "FFE2E8F0" } },
+        };
+
+        if (coral.imageBase64) {
+          try {
+            const cleanBase64 = coral.imageBase64.replace(/^data:image\/\w+;base64,/, "");
+            const isPng = /^data:image\/png/.test(coral.imageBase64) || coral.mimeType?.includes("png");
+            const imageId = workbook.addImage({
+              base64: cleanBase64,
+              extension: isPng ? "png" : "jpeg",
+            });
+            worksheet.addImage(imageId, {
+              tl: { col: 0.1, row: rowIndex - 1 + 0.1 },
+              ext: { width: 140, height: 125 },
+            });
+          } catch (imgError) {
+            console.error(`Failed to add image to excel row ${rowIndex}:`, imgError);
+            row.getCell(1).value = "[Photo missing/error]";
+            row.getCell(1).alignment = { vertical: "middle", horizontal: "center" };
+          }
+        } else {
+          row.getCell(1).value = "[No Photo]";
+          row.getCell(1).alignment = { vertical: "middle", horizontal: "center" };
+        }
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
