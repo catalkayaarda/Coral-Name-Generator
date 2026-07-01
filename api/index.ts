@@ -7,6 +7,12 @@ dotenv.config();
 
 const app = express();
 
+// Model is configurable via env var so it can be updated without a code change.
+// Defaults to a known generally-available vision model; note there is no
+// "gemini-3.5-flash" in the Gemini API, which previously caused every image to
+// fail with a 404 that surfaced as "Analysis Failed".
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
 // Increase request size limit to handle multiple base64 images
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -30,6 +36,7 @@ app.get("/api/debug", (req, res) => {
       NODE_ENV: process.env.NODE_ENV,
       VERCEL: process.env.VERCEL,
       HAS_GEMINI_KEY: !!process.env.GEMINI_API_KEY,
+      GEMINI_MODEL,
     },
     version: process.version,
   });
@@ -186,7 +193,7 @@ app.post("/api/generate-coral-names", async (req, res) => {
 
         const response = await retryWithBackoff((attemptTimeoutMs) =>
           ai.models.generateContent({
-            model: "gemini-3.5-flash",
+            model: GEMINI_MODEL,
             contents: [
               {
                 inlineData: {

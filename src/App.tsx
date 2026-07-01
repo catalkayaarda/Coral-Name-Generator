@@ -373,7 +373,7 @@ export default function App() {
             )}
             <div className="bg-white px-4 py-1.5 rounded-full border border-natural-border text-xs font-semibold flex items-center gap-1.5 text-natural-text shadow-xs">
               <span className="w-2 h-2 rounded-full bg-natural-teal animate-pulse" />
-              Gemini 3.5 Active
+              Gemini Vision Active
             </div>
           </div>
         </div>
@@ -652,10 +652,14 @@ export default function App() {
                           referrerPolicy="no-referrer"
                         />
                         {!coral.success && (
-                          <div className="absolute inset-0 bg-white/90 flex flex-col items-center justify-center p-4 text-center">
-                            <AlertCircle className="w-8 h-8 text-natural-accent mb-2" />
+                          <div className="absolute inset-0 bg-white/95 flex flex-col items-center justify-center p-4 text-center overflow-auto">
+                            <AlertCircle className="w-8 h-8 text-natural-accent mb-2 shrink-0" />
                             <span className="text-xs text-natural-accent font-bold font-serif">Analysis Failed</span>
-                            <span className="text-[10px] text-natural-muted mt-1">Default metrics applied</span>
+                            {coral.error && (
+                              <span className="text-[9px] text-natural-muted mt-1.5 leading-snug break-words max-w-full">
+                                {coral.error}
+                              </span>
+                            )}
                           </div>
                         )}
                         <div className="absolute top-2 left-2 px-2.5 py-1 bg-white/90 text-[10px] text-natural-muted font-mono rounded border border-natural-border font-semibold shadow-xs">
