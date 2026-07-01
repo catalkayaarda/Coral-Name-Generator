@@ -119,6 +119,30 @@ async function retryWithBackoff<T>(
   }
 }
 
+// Helper: run async work over a list with bounded concurrency, preserving order.
+// Analyzing images one-at-a-time in a serverless function easily exceeds the
+// platform's invocation timeout once a batch has more than a couple of photos,
+// since each Gemini call (plus its own retry/backoff) can take several seconds.
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < items.length) {
+      const current = cursor++;
+      results[current] = await fn(items[current], current);
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
 // 1. API: Generate Coral Names & Metadata from Photos
 app.post("/api/generate-coral-names", async (req, res) => {
   try {
@@ -131,14 +155,12 @@ app.post("/api/generate-coral-names", async (req, res) => {
     }
 
     const ai = getGeminiClient();
-    const results = [];
 
-    for (let index = 0; index < images.length; index++) {
-      const img = images[index];
+    const results = await mapWithConcurrency(images, 4, async (img) => {
       try {
         const base64Data = img.base64.replace(/^data:image\/\w+;base64,/, "");
 
-        const response = await retryWithBackoff(() => 
+        const response = await retryWithBackoff(() =>
           ai.models.generateContent({
             model: "gemini-3.5-flash",
             contents: [
@@ -177,17 +199,17 @@ app.post("/api/generate-coral-names", async (req, res) => {
 
         const data = JSON.parse(textResult);
 
-        results.push({
+        return {
           id: img.id,
           fileName: img.name,
           success: true,
           imageBase64: img.base64,
           mimeType: img.type,
           ...data,
-        });
+        };
       } catch (error: any) {
         console.error(`Error analyzing image ${img.name}:`, error);
-        results.push({
+        return {
           id: img.id,
           fileName: img.name,
           success: false,
@@ -195,9 +217,9 @@ app.post("/api/generate-coral-names", async (req, res) => {
           imageBase64: img.base64,
           mimeType: img.type,
           commonName: "Unknown Coral",
-        });
+        };
       }
-    }
+    });
 
     res.json({ corals: results });
   } catch (error: any) {

@@ -36,7 +36,11 @@ export default function App() {
   // requests. Group files by cumulative base64 size (with a headroom margin) rather
   // than a fixed count, since actual size varies with photo content.
   const MAX_BATCH_BASE64_CHARS = 3.5 * 1024 * 1024;
-  const MAX_BATCH_FILE_COUNT = 20;
+  // Kept small even though the payload limit would allow more: each image is a
+  // separate Gemini call server-side, and a serverless function invocation has
+  // its own timeout, so batches must also stay bounded by processing time, not
+  // just body size.
+  const MAX_BATCH_FILE_COUNT = 8;
 
   const chunkFilesBySize = (files: UploadedFile[]): UploadedFile[][] => {
     const batches: UploadedFile[][] = [];
