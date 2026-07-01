@@ -27,8 +27,47 @@ export default function App() {
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  
+  const [analyzeProgress, setAnalyzeProgress] = useState<{ done: number; total: number } | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Vercel Functions hard-cap the request body at ~4.5MB regardless of server-side
+  // body-parser limits, so large batches of photos must be split across multiple
+  // requests. Group files by cumulative base64 size (with a headroom margin) rather
+  // than a fixed count, since actual size varies with photo content.
+  const MAX_BATCH_BASE64_CHARS = 3.5 * 1024 * 1024;
+  const MAX_BATCH_FILE_COUNT = 20;
+
+  const chunkFilesBySize = (files: UploadedFile[]): UploadedFile[][] => {
+    const batches: UploadedFile[][] = [];
+    let current: UploadedFile[] = [];
+    let currentChars = 0;
+
+    for (const file of files) {
+      const size = file.base64.length;
+      if (current.length > 0 && (currentChars + size > MAX_BATCH_BASE64_CHARS || current.length >= MAX_BATCH_FILE_COUNT)) {
+        batches.push(current);
+        current = [];
+        currentChars = 0;
+      }
+      current.push(file);
+      currentChars += size;
+    }
+    if (current.length > 0) batches.push(current);
+    return batches;
+  };
+
+  // Safely parse a fetch Response as JSON, since error responses from the
+  // hosting platform (e.g. a 413 "Request Entity Too Large") come back as
+  // plain text, not JSON, and would otherwise throw a confusing SyntaxError.
+  const parseJsonResponse = async (response: Response) => {
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(text?.trim() || `Request failed with status ${response.status}`);
+    }
+  };
 
   // Helper: Compress and Convert File to Base64 (Max 1000px, JPEG format for optimal payload limits)
   const fileToBase64 = (file: File): Promise<string> => {
@@ -165,40 +204,68 @@ export default function App() {
     setIsAnalyzing(true);
     setError(null);
 
-    const payload = {
-      images: uploadedFiles.map(f => ({
-        id: f.id,
-        base64: f.base64,
-        type: f.type,
-        name: f.name
-      }))
-    };
+    const batches = chunkFilesBySize(uploadedFiles);
+    setAnalyzeProgress({ done: 0, total: uploadedFiles.length });
 
-    try {
-      const response = await fetch("/api/generate-coral-names", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
+    const allResults: CoralAnalysisResult[] = [];
+    let batchError: string | null = null;
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Failed to analyze coral photos.");
+    for (const batch of batches) {
+      const payload = {
+        images: batch.map(f => ({
+          id: f.id,
+          base64: f.base64,
+          type: f.type,
+          name: f.name
+        }))
+      };
+
+      try {
+        const response = await fetch("/api/generate-coral-names", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          const errData = await parseJsonResponse(response);
+          throw new Error(errData.error || "Failed to analyze coral photos.");
+        }
+
+        const data = await parseJsonResponse(response) as { corals: CoralAnalysisResult[] };
+        allResults.push(...data.corals);
+      } catch (err: any) {
+        console.error("Batch analysis failed:", err);
+        batchError = err.message || "Something went wrong while connecting to the name generator.";
+        // Keep the failed batch's photos in the catalog with a clear error state,
+        // rather than losing them, so the user can retry or exclude them individually.
+        allResults.push(
+          ...batch.map(f => ({
+            id: f.id,
+            fileName: f.name,
+            success: false,
+            error: batchError as string,
+            imageBase64: f.base64,
+            mimeType: f.type,
+            commonName: "Unknown Coral",
+          }))
+        );
       }
 
-      const data = await response.json() as { corals: CoralAnalysisResult[] };
-      setAnalyzedCorals(data.corals);
-      
-      // Clear pending list on success to move to Step 2
-      setUploadedFiles([]);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Something went wrong while connecting to the name generator.");
-    } finally {
-      setIsAnalyzing(false);
+      setAnalyzeProgress(prev => prev ? { done: prev.done + batch.length, total: prev.total } : null);
     }
+
+    setAnalyzedCorals(allResults);
+    setUploadedFiles([]);
+
+    if (batchError) {
+      setError(`Some photos failed to analyze: ${batchError}`);
+    }
+
+    setAnalyzeProgress(null);
+    setIsAnalyzing(false);
   };
 
   // Update a single analyzed coral field in the local list
@@ -229,7 +296,11 @@ export default function App() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to compile and download Excel sheet.");
+        if (response.status === 413) {
+          throw new Error("The catalog is too large to export in one request. Try exporting a smaller batch of corals at a time.");
+        }
+        const text = await response.text();
+        throw new Error(text?.trim() || "Failed to compile and download Excel sheet.");
       }
 
       const blob = await response.blob();
@@ -525,7 +596,9 @@ export default function App() {
               </p>
 
               <div className="bg-natural-panel rounded-xl p-3 border border-natural-border text-xs font-mono text-natural-muted">
-                Contacting server-side model instance...
+                {analyzeProgress
+                  ? `Processing photo ${Math.min(analyzeProgress.done + 1, analyzeProgress.total)} of ${analyzeProgress.total}...`
+                  : "Contacting server-side model instance..."}
               </div>
             </motion.div>
           </div>
