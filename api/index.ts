@@ -55,19 +55,35 @@ function getGeminiClient(): GoogleGenAI {
   return aiClient;
 }
 
-// Helper: Retry operation with exponential backoff for transient API errors (e.g., 503, 429)
+// Vercel Functions are hard-killed once maxDuration is hit, and a killed
+// function returns nothing at all (a 504 with zero results), which is much
+// worse than a normal per-image failure. Every Gemini call is therefore given
+// a bounded per-attempt timeout, and retries stop early once the shared
+// deadline is close, so the handler always finishes and returns whatever it has.
+const FUNCTION_TIME_BUDGET_MS = 40000; // keep well under vercel.json's maxDuration (60s)
+const MIN_ATTEMPT_TIMEOUT_MS = 3000;
+
+// Helper: Retry operation with exponential backoff for transient API errors (e.g., 503, 429).
+// `fn` receives the timeout (ms) it should use for this attempt so a single slow/hung
+// call can never eat the whole shared deadline.
 async function retryWithBackoff<T>(
-  fn: () => Promise<T>,
-  retries = 4,
-  delay = 2000
+  fn: (attemptTimeoutMs: number) => Promise<T>,
+  deadline: number,
+  retries = 3,
+  delay = 1500
 ): Promise<T> {
+  const remaining = deadline - Date.now();
+  if (remaining < MIN_ATTEMPT_TIMEOUT_MS) {
+    throw new Error("Time budget exceeded before this image could be analyzed.");
+  }
+
   try {
-    return await fn();
+    return await fn(Math.min(remaining, 15000));
   } catch (error: any) {
     if (retries <= 0) {
       throw error;
     }
-    
+
     let errorStr = "";
     try {
       errorStr += ` Message: ${error.message}`;
@@ -109,11 +125,15 @@ async function retryWithBackoff<T>(
       errorStrLower.includes("exhausted");
 
     if (isTransient) {
-      const jitter = Math.floor(Math.random() * 1000);
-      const totalDelay = delay + jitter;
+      const jitter = Math.floor(Math.random() * 500);
+      const timeLeftForWait = deadline - Date.now() - MIN_ATTEMPT_TIMEOUT_MS;
+      if (timeLeftForWait <= 0) {
+        throw error;
+      }
+      const totalDelay = Math.min(delay + jitter, timeLeftForWait);
       console.warn(`Gemini API transient issue detected. Retrying in ${totalDelay}ms... (Attempts remaining: ${retries})`);
       await new Promise((resolve) => setTimeout(resolve, totalDelay));
-      return retryWithBackoff(fn, retries - 1, delay * 2);
+      return retryWithBackoff(fn, deadline, retries - 1, delay * 2);
     }
     throw error;
   }
@@ -155,12 +175,16 @@ app.post("/api/generate-coral-names", async (req, res) => {
     }
 
     const ai = getGeminiClient();
+    const deadline = Date.now() + FUNCTION_TIME_BUDGET_MS;
 
-    const results = await mapWithConcurrency(images, 4, async (img) => {
+    // Run every image in the batch fully in parallel rather than in waves of a
+    // fixed concurrency, so total wall time is bounded by the shared deadline
+    // rather than multiplying per-image time by the number of waves.
+    const results = await mapWithConcurrency(images, images.length, async (img) => {
       try {
         const base64Data = img.base64.replace(/^data:image\/\w+;base64,/, "");
 
-        const response = await retryWithBackoff(() =>
+        const response = await retryWithBackoff((attemptTimeoutMs) =>
           ai.models.generateContent({
             model: "gemini-3.5-flash",
             contents: [
@@ -175,6 +199,7 @@ app.post("/api/generate-coral-names", async (req, res) => {
               },
             ],
             config: {
+              httpOptions: { timeout: attemptTimeoutMs },
               responseMimeType: "application/json",
               responseSchema: {
                 type: Type.OBJECT,
@@ -189,7 +214,8 @@ app.post("/api/generate-coral-names", async (req, res) => {
                 ],
               },
             },
-          })
+          }),
+          deadline
         );
 
         const textResult = response.text;
